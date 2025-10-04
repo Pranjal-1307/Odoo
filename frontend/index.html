@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Expense Approvals Demo</title>
+  <style>
+    body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 16px;}
+    header{display:flex; align-items:center; justify-content:space-between}
+    .card{border:1px solid #ddd; border-radius:12px; padding:16px; margin:12px 0; box-shadow: 0 1px 4px rgba(0,0,0,.04)}
+    input, select, button, textarea{padding:8px 10px; border-radius:8px; border:1px solid #ccc; width:100%}
+    button{cursor:pointer}
+    .row{display:grid; grid-template-columns: 1fr 1fr; gap:12px;}
+    .row3{display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;}
+    .muted{color:#666}
+    .flex{display:flex; gap:8px}
+    .right{margin-left:auto}
+    pre{white-space:pre-wrap; background:#fafafa; padding:8px; border-radius:8px; border:1px dashed #ddd}
+    .pill{padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #ddd}
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Expense Approvals Demo</h2>
+    <div id="authStatus" class="muted">Not logged in</div>
+  </header>
+
+  <div class="card">
+    <h3>1) Signup (Admin)</h3>
+    <div class="row3">
+      <input id="su_email" placeholder="email"/>
+      <input id="su_name" placeholder="full name"/>
+      <input id="su_pass" placeholder="password" type="password"/>
+    </div>
+    <div class="row3">
+      <input id="su_company" placeholder="company name"/>
+      <input id="su_country" placeholder="country code (US/IN/DE...)"/>
+      <button onclick="signup()">Sign up & Login</button>
+    </div>
+    <div class="muted">Creates Company & Admin in selected country currency (auto).</div>
+  </div>
+
+  <div class="card">
+    <h3>2) Login</h3>
+    <div class="row3">
+      <input id="li_email" placeholder="email"/>
+      <input id="li_pass" placeholder="password" type="password"/>
+      <button onclick="login()">Login</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>3) Create User (Admin)</h3>
+    <div class="row3">
+      <input id="cu_email" placeholder="email"/>
+      <input id="cu_name" placeholder="full name"/>
+      <input id="cu_pass" placeholder="password" type="password"/>
+    </div>
+    <div class="row3">
+      <select id="cu_role">
+        <option value="employee">employee</option>
+        <option value="manager">manager</option>
+      </select>
+      <input id="cu_manager" placeholder="manager_id (optional)"/>
+      <label><input id="cu_is_mgr_approver" type="checkbox"/> Is Manager Approver</label>
+    </div>
+    <button onclick="createUser()">Create</button>
+  </div>
+
+  <div class="card">
+    <h3>4) Submit Expense (as logged-in user)</h3>
+    <div class="row3">
+      <input id="ex_amount" placeholder="amount" />
+      <input id="ex_ccy" placeholder="currency (e.g., USD, INR)"/>
+      <input id="ex_category" placeholder="category (e.g., Meals)"/>
+    </div>
+    <div class="row">
+      <textarea id="ex_desc" placeholder="description"></textarea>
+      <input id="ex_date" type="date"/>
+    </div>
+    <button onclick="submitExpense()">Submit Expense</button>
+    <div id="myExpenses"></div>
+  </div>
+
+  <div class="card">
+    <h3>5) Approvals for Me</h3>
+    <button onclick="loadPending()">Load My Pending</button>
+    <div id="pending"></div>
+  </div>
+
+  <div class="card">
+    <h3>6) OCR: Parse Receipt</h3>
+    <input id="ocr_file" type="file" accept="image/*"/>
+    <button onclick="parseOCR()">Parse</button>
+    <div id="ocrOut"></div>
+  </div>
+
+  <script>
+    const API = "http://127.0.0.1:8000";
+    let token = null;
+    function setAuthStatus(){
+      document.getElementById("authStatus").innerText = token ? "Logged in" : "Not logged in";
+    }
+    async function signup(){
+      const body = {
+        email: document.getElementById("su_email").value,
+        full_name: document.getElementById("su_name").value,
+        password: document.getElementById("su_pass").value,
+        company_name: document.getElementById("su_company").value,
+        country_code: document.getElementById("su_country").value
+      };
+      const r = await fetch(API + "/auth/signup", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+      const d = await r.json();
+      token = d.access_token; setAuthStatus();
+    }
+    async function login(){
+      const body = {
+        email: document.getElementById("li_email").value,
+        password: document.getElementById("li_pass").value,
+      };
+      const r = await fetch(API + "/auth/login", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+      const d = await r.json();
+      token = d.access_token; setAuthStatus();
+    }
+    async function createUser(){
+      const body = {
+        email: document.getElementById("cu_email").value,
+        full_name: document.getElementById("cu_name").value,
+        password: document.getElementById("cu_pass").value,
+        role: document.getElementById("cu_role").value,
+        manager_id: document.getElementById("cu_manager").value ? Number(document.getElementById("cu_manager").value) : null,
+        is_manager_approver: document.getElementById("cu_is_mgr_approver").checked
+      };
+      const r = await fetch(API + "/admin/users", {method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+token}, body: JSON.stringify(body)});
+      alert(await r.text());
+    }
+    async function submitExpense(){
+      const body = {
+        amount: Number(document.getElementById("ex_amount").value),
+        currency_code: document.getElementById("ex_ccy").value,
+        category: document.getElementById("ex_category").value,
+        description: document.getElementById("ex_desc").value,
+        date: document.getElementById("ex_date").value
+      };
+      const r = await fetch(API + "/expenses", {method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+token}, body: JSON.stringify(body)});
+      const d = await r.json();
+      alert("Expense created id="+d.id+" (status: "+d.status+")");
+      loadMyExpenses();
+    }
+    async function loadMyExpenses(){
+      const r = await fetch(API + "/expenses/my", {headers: {"Authorization":"Bearer "+token}});
+      const list = await r.json();
+      const el = document.getElementById("myExpenses");
+      el.innerHTML = "<h4>My Expenses</h4>"+ list.map(x => \`
+        <div class='card'>
+          <div><b>ID:</b> \${x.id} <span class='pill'>\${x.status}</span></div>
+          <div>Amount: \${x.amount} \${x.currency_code} (normalized: \${x.normalized_amount})</div>
+          <div>Category: \${x.category} | Date: \${x.date}</div>
+          <button onclick="viewSteps(\${x.id})">View Steps</button>
+          <div id="steps_\${x.id}"></div>
+        </div>
+      \`).join("");
+    }
+    async function loadPending(){
+      const r = await fetch(API + "/approvals/pending", {headers: {"Authorization":"Bearer "+token}});
+      const list = await r.json();
+      const el = document.getElementById("pending");
+      el.innerHTML = list.map(x => \`
+        <div class='card'>
+          <div><b>Expense #\${x.id}</b> <span class='pill'>\${x.status}</span></div>
+          <div>Amount: \${x.amount} \${x.currency_code} (normalized: \${x.normalized_amount})</div>
+          <div>Category: \${x.category} | Date: \${x.date}</div>
+          <div class='flex'>
+            <button onclick="act(\${x.id}, true)">Approve</button>
+            <button onclick="act(\${x.id}, false)">Reject</button>
+          </div>
+        </div>
+      \`).join("");
+    }
+    async function act(id, approve){
+      const comment = approve ? "Approved via demo" : "Rejected via demo";
+      const r = await fetch(API + "/approvals/"+id+"/act", {method:"POST", headers: {"Authorization":"Bearer "+token, "Content-Type":"application/json"}, body: JSON.stringify({approve, comment})});
+      alert(await r.text());
+      loadPending(); loadMyExpenses();
+    }
+    async function viewSteps(id){
+      const r = await fetch(API + "/expenses/"+id+"/steps", {headers: {"Authorization":"Bearer "+token}});
+      const list = await r.json();
+      document.getElementById("steps_"+id).innerHTML = "<pre>"+JSON.stringify(list, null, 2)+"</pre>";
+    }
+    async function parseOCR(){
+      const f = document.getElementById("ocr_file").files[0];
+      if(!f){ alert("Choose a file"); return; }
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch(API + "/ocr/parse", {method:"POST", body: fd});
+      const d = await r.json();
+      document.getElementById("ocrOut").innerHTML = "<pre>"+JSON.stringify(d, null, 2)+"</pre>";
+    }
+  </script>
+</body>
+</html>
